@@ -1,0 +1,62 @@
+version: "3.8"
+
+services:
+  loki:
+    image: grafana/loki:latest
+    container_name: loki
+    command: -config.file=/etc/loki/local-config.yaml
+    ports:
+      - "3100:3100" # Loki's API port
+
+  tempo:
+    image: grafana/tempo:latest
+    container_name: tempo
+    command: -config.file=/etc/tempo/config.yaml
+    ports:
+      - "3200:3200" # Tempo UI & API
+      - "4317:4317" # OTLP gRPC port (for Alloy to send traces)
+    volumes:
+      - ./tempo:/etc/tempo
+      - ./tempo-data:/tmp/tempo
+
+  grafana:
+    image: grafana/grafana:latest
+    container_name: grafana
+    ports:
+      - "3000:3000" # Grafana UI port
+    environment:
+      - GF_AUTH_ANONYMOUS_ENABLED=true
+      - GF_AUTH_ANONYMOUS_ORG_ROLE=Admin
+      - GF_FEATURE_TOGGLES_ENABLE=grafanaAssistant # Enables the LLM Assistant (MCP)
+    volumes:
+      - ./grafana/provisioning:/etc/grafana/provisioning
+    depends_on:
+      - loki
+      - tempo
+
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: fastapi-backend
+    ports:
+      - "8131:8000" # Backend API port
+    volumes:
+      - ./backend:/app
+      - ./frontend:/app/frontend
+    command: uvicorn main:app --host 0.0.0.0 --port 8000
+    depends_on:
+      - alloy
+
+  alloy:
+    image: grafana/alloy:latest
+    container_name: alloy
+    ports:
+      - "4318:4318" # Faro receiver port (for frontend logs AND traces)
+      - "4319:4319" # OTLP HTTP receiver port (for backend logs AND traces)
+    volumes:
+      - ./alloy/config.alloy:/etc/alloy/config.alloy
+    command: run /etc/alloy/config.alloy
+    depends_on:
+      - loki
+      - tempo

@@ -1,0 +1,15 @@
+fastapi
+uvicorn
+
+#OTel Core
+
+opentelemetry-api
+opentelemetry-sdk
+
+#OTLP HTTP Exporter (for Logs AND Traces)
+
+opentelemetry-exporter-otlp-proto-http
+
+#Automatic FastAPI Tracing
+
+opentelemetry-instrumentation-fastapi

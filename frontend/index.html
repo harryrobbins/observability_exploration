@@ -1,0 +1,120 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Vue + Faro Logging & Tracing</title>
+    <!-- 1. Vue.js CDN -->
+    <script src="https://unpkg.com/vue@3/dist/vue.global.js"></script>
+
+    <!-- 2. Grafana Faro Web SDK CDN -->
+    <script src="https://unpkg.com/@grafana/faro-web-sdk@latest/dist/bundle/faro-web-sdk.iife.js"></script>
+
+    <style>
+        body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; padding: 20px; background: #f4f4f4; }
+        #app { background: #fff; padding: 20px; border-radius: 8px; box-shadow: 0 2px 10px rgba(0,0,0,0.1); }
+        button { font-size: 16px; padding: 10px 15px; margin: 5px; cursor: pointer; border-radius: 5px; border: none; }
+        button.info { background: #007bff; color: white; }
+        button.error { background: #dc3545; color: white; }
+        button.fetch { background: #28a745; color: white; }
+    </style>
+</head>
+<body>
+
+<div id="app">
+    <h2>Frontend Logging & Tracing Test</h2>
+    <p>Open Grafana to see logs, traces, and the link between them.</p>
+    <button class="info" @click="sendInfoLog">Send Info Log</button>
+    <button class="error" @click="sendErrorLog">Generate & Send Error</button>
+    <button class="fetch" @click="callApiRoot">Call Backend ('/api/root')</button>
+    <button class="fetch" @click="callApiError">Call Backend ('/error')</button>
+</div>
+
+<script>
+    // 3. Initialize Grafana Faro
+    window.faro = GrafanaFaroWebSdk.initializeFaro({
+        // This URL points to Alloy's Faro collector endpoint
+        // This MUST be localhost:4318/collect, as the *browser*
+        // is on the host machine and talking to the Docker container.
+        url: 'http://localhost:4318/collect',
+
+        // This is CRITICAL. It becomes a label: {service_name="vue-frontend"}
+        app: {
+            name: 'vue-frontend',
+            version: '1.0.0',
+            environment: 'local-dev'
+        },
+
+        // This is the "magic" to enable TRACING
+        instrumentations: [
+          // All default web instrumentations (clicks, errors, console, etc.)
+          // This INCLUDES FetchInstrumentation, which is what we need.
+          ...GrafanaFaroWebSdk.getWebInstrumentations()
+
+          // The line that was here before was causing the error.
+          // The '...getWebInstrumentations()' is all we need.
+        ]
+    });
+
+    // 4. Create the Vue Application
+    const { createApp } = Vue;
+
+    createApp({
+        methods: {
+            sendInfoLog() {
+                console.log("Sending info log...");
+                // Send a custom log to Loki
+                window.faro.api.pushLog(['User clicked the info button'], {
+                    level: 'info',
+                    context: { 'button.name': 'info-button' }
+                });
+                // Using console.log instead of alert
+                console.log('Info log sent!');
+            },
+
+            sendErrorLog() {
+                console.error("Generating a client-side error...");
+                try {
+                    nonExistentFunction();
+                } catch (e) {
+                    window.faro.api.pushError(e);
+                    console.log('Error log sent!');
+                }
+            },
+
+            callApiRoot() {
+                console.log('Calling backend at /api/root');
+                // This fetch is now RELATIVE, since the page is served from the same host.
+                fetch('/api/root')
+                    .then(res => res.json())
+                    .then(data => {
+                        console.log('Backend response:', data.message);
+                        console.log('Called /api/root and got: ' + data.message);
+                    })
+                    .catch(err => {
+                        console.error(err);
+                        window.faro.api.pushError(err);
+                    });
+            },
+
+            callApiError() {
+                console.log('Calling backend at /error');
+                // This fetch is also RELATIVE.
+                fetch('/error')
+                    .then(res => res.json())
+                    .then(data => {
+                        console.log('Backend response:', data.message);
+                        console.log('Called /error and got: ' + data.message);
+                    })
+                    .catch(err => {
+                        console.error(err);
+                        window.faro.api.pushError(err);
+                    });
+            }
+        }
+    }).mount('#app');
+
+</script>
+
+</body>
+</html>

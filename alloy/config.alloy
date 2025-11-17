@@ -1,0 +1,83 @@
+// 1a. Define a Faro receiver for frontend (browser) telemetry
+faro.receiver "default" {
+  server {
+    listen_address = "0.0.0.0"
+    listen_port    = 4318
+
+    cors_allowed_origins = ["http://localhost:8131", "http://localhost:*"]
+  }
+
+  output {
+    logs   = [loki.process.faro.receiver]
+    traces = [otelcol.exporter.otlp.tempo.input]
+  }
+}
+
+// 1c. Process Faro logs to extract service name
+loki.process "faro" {
+  stage.logfmt {
+    mapping = {
+      "app_name" = "",
+    }
+  }
+
+  stage.labels {
+    values = {
+      "service_name" = "app_name",
+    }
+  }
+
+  forward_to = [loki.write.default.receiver]
+}
+
+// 1b. Define OTLP receiver for backend (Python) on a different port
+otelcol.receiver.otlp "backend" {
+  http {
+    endpoint = "0.0.0.0:4319"
+  }
+
+  output {
+    logs   = [otelcol.exporter.loki.backend.input]
+    traces = [otelcol.exporter.otlp.tempo.input]
+  }
+}
+
+// 2b. OTLP-to-Loki exporter specifically for backend
+otelcol.exporter.loki "backend" {
+  forward_to = [loki.process.backend_labels.receiver]
+}
+
+// 2c. Process backend logs to set service_name label
+loki.process "backend_labels" {
+  stage.static_labels {
+    values = {
+      service_name = "fastapi-backend",
+    }
+  }
+
+  forward_to = [loki.write.default.receiver]
+}
+
+// 2a. Define an OTLP-to-Loki exporter for logs
+otelcol.exporter.loki "default" {
+  forward_to = [loki.write.default.receiver]
+}
+
+// 2. Define an exporter for Loki (LOGS)
+loki.write "default" {
+  endpoint {
+    // This URL points to the 'loki' service
+    url = "http://loki:3100/loki/api/v1/push"
+  }
+}
+
+// 4. Define an exporter for Tempo (TRACES)
+otelcol.exporter.otlp "tempo" {
+  // This points to the 'tempo' service's OTLP gRPC port
+  client {
+    endpoint = "tempo:4317"
+    tls {
+      insecure = true
+    }
+  }
+}
