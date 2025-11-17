@@ -2,3 +2,5 @@
 .env
 tempo-data/
 .idea
+**/__pycache__/
+__pycache__/
